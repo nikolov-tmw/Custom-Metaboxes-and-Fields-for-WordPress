@@ -146,6 +146,20 @@ class cmb_Meta_Box {
 	protected static $updated = array();
 
 	/**
+	 * List of old values of fields that are changed/updated on save
+	 * @var   array
+	 * @since 1.3.0
+	 */
+	protected static $old_values = array();
+
+	/**
+	 * List of the new values of fields that are changed/updated on save
+	 * @var   array
+	 * @since 1.3.0
+	 */
+	protected static $new_values = array();
+
+	/**
 	 * Get started
 	 */
 	function __construct( $meta_box ) {
@@ -558,6 +572,8 @@ class cmb_Meta_Box {
 
 		// save field ids of those that are updated
 		self::$updated = array();
+		self::$old_values = array();
+		self::$new_values = array();
 
 		foreach ( $meta_box['fields'] as $field_args ) {
 
@@ -575,7 +591,7 @@ class cmb_Meta_Box {
 		if ( $object_type == 'options-page' )
 			self::save_option( $object_id );
 
-		do_action( "cmb_save_{$object_type}_fields", $object_id, $meta_box['id'], self::$updated, $meta_box );
+		do_action( "cmb_save_{$object_type}_fields", $object_id, $meta_box['id'], self::$updated, $meta_box, self::$old_values, self::$new_values );
 
 	}
 
@@ -593,6 +609,9 @@ class cmb_Meta_Box {
 		$saved              = array();
 		$is_updated         = false;
 		$field_group->index = 0;
+
+		// Store the old value
+		$self::$old_values[ $base_id ] = $old;
 
 		// $group_vals[0]['color'] = '333';
 		foreach ( array_values( $field_group->fields() ) as $field_args ) {
@@ -624,8 +643,9 @@ class cmb_Meta_Box {
 				$is_updated = ( ! empty( $new_val ) && $new_val != $old_val );
 				$is_removed = ( empty( $new_val ) && ! empty( $old_val ) );
 				// Compare values and add to `$updated` array
-				if ( $is_updated || $is_removed )
+				if ( $is_updated || $is_removed ) {
 					self::$updated[] = $base_id .'::'. $field_group->index .'::'. $sub_id;
+				}
 
 				// Add to `$saved` array
 				$saved[ $field_group->index ][ $sub_id ] = $new_val;
@@ -636,6 +656,10 @@ class cmb_Meta_Box {
 		$saved = array_filter( $saved );
 
 		$field_group->update_data( $saved, true );
+
+		// Once the field is saved, get it's new value
+		self::$new_values[ $base_id ] = $field_group->get_data();
+
 	}
 
 	public static function sanitize_field( $field, $new_value = null ) {
@@ -666,13 +690,31 @@ class cmb_Meta_Box {
 		// 		}
 		// 	}
 		// } else
+
+		// Store the old value
+		self::$old_values[ $field->id() ] = $old;
+
 		if ( ! empty( $new_value ) && $new_value != $old  ) {
 			self::$updated[] = $name;
-			return $field->update_data( $new_value );
+			$result = $field->update_data( $new_value );
+
+			// Once the field is saved, get it's new value
+			// That's because the value could change during save, or can have $single = false
+			self::$new_values[ $field->id() ] = $field->get_data();
+
+			return $result;
 		} elseif ( empty( $new_value ) ) {
-			if ( ! empty( $old ) )
+			$result = $field->remove_data();
+
+			if ( ! empty( $old ) ) {
 				self::$updated[] = $name;
-			return $field->remove_data();
+				
+				// Once the field is saved, get it's new value
+				// That's because the value could change during save, or can have $single = false
+				self::$new_values[ $field->id() ] = $field->get_data();
+			}
+
+			return $result;
 		}
 	}
 
